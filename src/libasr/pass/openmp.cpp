@@ -1659,6 +1659,13 @@ class ParallelRegionVisitor :
                 ReplaceSymbolsVisitor v(*fn_scope);
                 v.visit_DoConcurrentLoop(x);
 
+                // The loop is moved from its original enclosing scope into the generated
+                // offloading function. Update the loop-owned symbol table accordingly.
+                ASR::DoConcurrentLoop_t& xx = const_cast<ASR::DoConcurrentLoop_t&>(x);
+
+                LCOMPILERS_ASSERT(xx.m_symtab);
+                xx.m_symtab->parent = fn_scope;
+
                 Vec<ASR::stmt_t *> fn_body; fn_body.reserve(al, 1);
                 fn_body.push_back(al, (ASR::stmt_t *)&x);
 

@@ -209,6 +209,10 @@ public:
         for (auto &a : x.m_symtab->get_scope()) {
             this->visit_symbol(*a.second);
         }
+        // for do_concurrent
+        for (size_t i = 0; i < x.n_body; i++) {
+            this->visit_stmt(*x.m_body[i]);
+        }
         current_symtab = parent_symtab;
     }
 
@@ -231,6 +235,10 @@ public:
         for (auto &a : x.m_symtab->get_scope()) {
             this->visit_symbol(*a.second);
         }
+        // for do_concurrent
+        for (size_t i = 0; i < x.n_body; i++) {
+            this->visit_stmt(*x.m_body[i]);
+        }
         current_symtab = parent_symtab;
     }
 
@@ -242,6 +250,10 @@ public:
         for (auto &a : x.m_symtab->get_scope()) {
             this->visit_symbol(*a.second);
         }
+        // for do_concurrent
+        for (size_t i = 0; i < x.n_body; i++) {
+            this->visit_stmt(*x.m_body[i]);
+        }
         current_symtab = parent_symtab;
     }
 
@@ -252,6 +264,10 @@ public:
         x.m_symtab->asr_owner = (asr_t*)&x;
         for (auto &a : x.m_symtab->get_scope()) {
             this->visit_symbol(*a.second);
+        }
+        // for do_concurrent
+        for (size_t i = 0; i < x.n_body; i++) {
+            this->visit_stmt(*x.m_body[i]);
         }
         current_symtab = parent_symtab;
     }
@@ -300,6 +316,23 @@ public:
         current_symtab = parent_symtab;
     }
 
+    void visit_DoConcurrentLoop(const DoConcurrentLoop_t &x) {
+        SymbolTable *parent_symtab = current_symtab;
+        current_symtab = x.m_symtab;
+
+        x.m_symtab->parent = parent_symtab;
+        x.m_symtab->asr_owner = (asr_t*)&x;
+
+        for (auto &a : x.m_symtab->get_scope()) {
+            this->visit_symbol(*a.second);
+        }
+
+        for (size_t i = 0; i < x.n_body; i++) {
+            this->visit_stmt(*x.m_body[i]);
+        }
+
+        current_symtab = parent_symtab;
+    }
 };
 
 class FixExternalSymbolsVisitor : public BaseWalkVisitor<FixExternalSymbolsVisitor>
@@ -348,6 +381,14 @@ public:
         SymbolTable* current_scope_copy = current_scope;
         current_scope = x.m_symtab;
         BaseWalkVisitor<FixExternalSymbolsVisitor>::visit_Block(x);
+        current_scope = current_scope_copy;
+    }
+    
+    void visit_DoConcurrentLoop(const DoConcurrentLoop_t &x) {
+        LCOMPILERS_ASSERT(x.m_symtab);
+        SymbolTable *current_scope_copy = current_scope;
+        current_scope = x.m_symtab;
+        BaseWalkVisitor<FixExternalSymbolsVisitor>::visit_DoConcurrentLoop(x);
         current_scope = current_scope_copy;
     }
     /**

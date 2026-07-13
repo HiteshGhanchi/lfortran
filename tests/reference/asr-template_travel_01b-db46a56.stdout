@@ -409,8 +409,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [~div_intrinsic1
-                                                    avg_integer_s_from_t]
+                                                    [avg_integer_s_from_t
+                                                    ~div_intrinsic1]
                                                     [(Var 20 d1)
                                                     (Var 20 s1)
                                                     (Var 20 d2)
@@ -598,8 +598,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [~add_intrinsic1
-                                                    ~div_intrinsic1]
+                                                    [~div_intrinsic1
+                                                    ~add_intrinsic1]
                                                     [(Var 19 d1)
                                                     (Var 19 t1)
                                                     (Var 19 d2)
@@ -785,8 +785,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [~div_intrinsic
-                                                    avg_real_s_from_t]
+                                                    [avg_real_s_from_t
+                                                    ~div_intrinsic]
                                                     [(Var 16 d1)
                                                     (Var 16 s1)
                                                     (Var 16 d2)
@@ -974,8 +974,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [~add_intrinsic
-                                                    ~div_intrinsic]
+                                                    [~div_intrinsic
+                                                    ~add_intrinsic]
                                                     [(Var 15 d1)
                                                     (Var 15 t1)
                                                     (Var 15 d2)
@@ -1932,8 +1932,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [d_divided_by_s
-                                                    avg_s_from_t]
+                                                    [avg_s_from_t
+                                                    d_divided_by_s]
                                                     [(Var 11 d1)
                                                     (Var 11 s1)
                                                     (Var 11 d2)
@@ -2147,9 +2147,9 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [plus_d
-                                                    plus_t
-                                                    d_divided_by_t]
+                                                    [d_divided_by_t
+                                                    plus_d
+                                                    plus_t]
                                                     [(Var 10 d1)
                                                     (Var 10 t1)
                                                     (Var 10 d2)

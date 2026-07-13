@@ -112,6 +112,7 @@ public:
     int is_current_body_set = 0;
     Vec<ASR::stmt_t*>* current_body;
     Vec<ASR::stmt_t*>* body_after_curr_stmt;
+    SymbolTable* current_body_scope = nullptr;
     const LCompilers::PassOptions& pass_options;
 
     // Variables that were associated (by pass_array_by_data) with an
@@ -179,8 +180,11 @@ public:
 
     void transform_stmts(ASR::stmt_t**& m_body, size_t& n_body) {
         is_current_body_set++;
+        SymbolTable* current_body_scope_copy = current_body_scope;
+        current_body_scope = current_scope;
         transform_stmts_impl(al, m_body, n_body, current_body, body_after_curr_stmt,
             [this](const ASR::stmt_t& stmt) { visit_stmt(stmt); });
+        current_body_scope = current_body_scope_copy;
         is_current_body_set--;
     }
 
@@ -837,7 +841,7 @@ public:
                 ASR::expr_t* arg_expr_past_cast = ASRUtils::get_past_array_physical_cast(arg_expr);
                 const Location& loc = arg_expr->base.loc;
                 ASR::expr_t* array_var_temporary = create_temporary_variable_for_array(
-                    al, arg_expr_past_cast, current_scope, name_hint, true);
+                    al, arg_expr_past_cast, current_body_scope, name_hint, true);
                 ASR::call_arg_t array_var_temporary_arg;
                 array_var_temporary_arg.loc = loc;
                 const bool unhandled_case = ASRUtils::is_unlimited_polymorphic_type(ASRUtils::expr_type(arg_expr)) || 
@@ -888,7 +892,7 @@ public:
                         ASR::ttype_t* loop_var_type = pass_options.descriptor_index_64
                             ? ASRUtils::expr_type(b.i64(0))
                             : ASRUtils::expr_type(b.i32(0));
-                        do_loop_variables.push_back(b.Variable(current_scope, var_name, loop_var_type, ASR::intentType::Local));
+                        do_loop_variables.push_back(b.Variable(current_body_scope, var_name, loop_var_type, ASR::intentType::Local));
                     }
                     int integer_kind = pass_options.descriptor_index_64 ? 8 : 4;
                     current_body->push_back(al,

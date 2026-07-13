@@ -297,14 +297,8 @@ public:
         require(symtab_in_scope(current_symtab, x.m_m),
             "Block " + std::string(ASRUtils::symbol_name(x.m_m)) +
             " should resolve in current scope.");
-        SymbolTable *parent_symtab = current_symtab;
-        ASR::Block_t* block = ASR::down_cast<ASR::Block_t>(x.m_m);
-        LCOMPILERS_ASSERT(block); // already checked above, just making sure
-        current_symtab = block->m_symtab;
-        for (size_t i=0; i<block->n_body; i++) {
-            visit_stmt(*(block->m_body[i]));
-        }
-        current_symtab = parent_symtab;
+        // Removed the visit because that is done in visit_Block() and no need to visit twice
+        // Earlier it did not cause issue, but now we have sym_tabel in stmt too like do_concurrent
     }
 
     void verify_unique_dependencies(char** m_dependencies,
@@ -501,7 +495,6 @@ public:
         if (x.m_return_var) {
             visit_expr(*x.m_return_var);
         }
-
         verify_unique_dependencies(x.m_dependencies, x.n_dependencies,
                                    x.m_name, x.base.base.loc);
 
@@ -1487,71 +1480,126 @@ public:
         _inside_call = _inside_call_copy;
     }
 
-    void visit_FunctionCall(const FunctionCall_t &x) {
+    void visit_FunctionCall(const FunctionCall_t& x) {
         require(x.m_name,
             "FunctionCall::m_name must be present");
-        variable_dependencies.push_back(std::string(ASRUtils::symbol_name(x.m_name)));
+
+        variable_dependencies.push_back(
+            std::string(ASRUtils::symbol_name(x.m_name))
+        );
+
         if (x.m_dt) {
             visit_expr(*x.m_dt);
-        }
-        ASR::symbol_t* asr_owner_sym = nullptr;
-        if(current_symtab->asr_owner &&  ASR::is_a<ASR::symbol_t>(*current_symtab->asr_owner) ) {
-            asr_owner_sym = ASR::down_cast<ASR::symbol_t>(current_symtab->asr_owner);
         }
 
         SymbolTable* temp_scope = current_symtab;
 
-        if (asr_owner_sym &&
-            !ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name) &&
-            !ASR::is_a<ASR::Variable_t>(*x.m_name)) {
-            while (temp_scope->parent && temp_scope->asr_owner &&
-                   ASR::is_a<ASR::symbol_t>(*temp_scope->asr_owner)) {
-                ASR::symbol_t* temp_owner_sym =
-                    ASR::down_cast<ASR::symbol_t>(temp_scope->asr_owner);
-                if (!ASR::is_a<ASR::AssociateBlock_t>(*temp_owner_sym) &&
-                    !ASR::is_a<ASR::Block_t>(*temp_owner_sym)) {
-                    break;
+        // Walk through nested construct scopes to find the procedure
+        // scope to which this dependency belongs.
+        while (temp_scope->parent && temp_scope->asr_owner) {
+            ASR::asr_t* owner = temp_scope->asr_owner;
+
+            // DoConcurrentLoop is a statement-owned scope.
+            if (ASR::is_a<ASR::stmt_t>(*owner)) {
+                ASR::stmt_t* owner_stmt =
+                    ASR::down_cast<ASR::stmt_t>(owner);
+
+                if (ASR::is_a<ASR::DoConcurrentLoop_t>(
+                        *owner_stmt)) {
+                    temp_scope = temp_scope->parent;
+                    continue;
                 }
-                temp_scope = temp_scope->parent;
             }
-            if (temp_scope->get_counter() != ASRUtils::symbol_parent_symtab(x.m_name)->get_counter()) {
-                function_dependencies.push_back(std::string(ASRUtils::symbol_name(x.m_name)));
+
+            // Block and AssociateBlock are symbol-owned scopes.
+            if (ASR::is_a<ASR::symbol_t>(*owner)) {
+                ASR::symbol_t* owner_sym =
+                    ASR::down_cast<ASR::symbol_t>(owner);
+
+                if (ASR::is_a<ASR::Block_t>(*owner_sym) ||
+                    ASR::is_a<ASR::AssociateBlock_t>(
+                        *owner_sym)) {
+                    temp_scope = temp_scope->parent;
+                    continue;
+                }
             }
-        }
-        if (_return_var_or_intent_out  && _processing_dims &&
-            temp_scope->get_counter() != ASRUtils::symbol_parent_symtab(x.m_name)->get_counter() &&
-            !ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name)) {
-            function_dependencies.push_back(std::string(ASRUtils::symbol_name(x.m_name)));
+
+            // Function, Program, Module, etc.: stop walking upward.
+            break;
         }
 
-        if( ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name) ) {
-            ASR::ExternalSymbol_t* x_m_name = ASR::down_cast<ASR::ExternalSymbol_t>(x.m_name);
-            if( x_m_name->m_external && ASR::is_a<ASR::Module_t>(*ASRUtils::get_asr_owner(x_m_name->m_external)) ) {
-                module_dependencies.push_back(std::string(x_m_name->m_module_name));
+        SymbolTable* callee_scope =
+            ASRUtils::symbol_parent_symtab(x.m_name);
+
+        if (!ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name) &&
+            !ASR::is_a<ASR::Variable_t>(*x.m_name) &&
+            temp_scope->get_counter() !=
+                callee_scope->get_counter()) {
+            function_dependencies.push_back(
+                std::string(ASRUtils::symbol_name(x.m_name))
+            );
+        }
+
+        // Preserve the verifier-specific dimension handling.
+        if (_return_var_or_intent_out &&
+            _processing_dims &&
+            temp_scope->get_counter() !=
+                callee_scope->get_counter() &&
+            !ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name)) {
+            function_dependencies.push_back(
+                std::string(ASRUtils::symbol_name(x.m_name))
+            );
+        }
+
+        if (ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name)) {
+            ASR::ExternalSymbol_t* x_m_name =
+                ASR::down_cast<ASR::ExternalSymbol_t>(x.m_name);
+
+            if (x_m_name->m_external &&
+                ASR::is_a<ASR::Module_t>(
+                    *ASRUtils::get_asr_owner(
+                        x_m_name->m_external))) {
+                module_dependencies.push_back(
+                    std::string(x_m_name->m_module_name)
+                );
             }
         }
 
         require(symtab_in_scope(current_symtab, x.m_name),
-            "FunctionCall::m_name `" + std::string(symbol_name(x.m_name)) +
+            "FunctionCall::m_name `" +
+            std::string(symbol_name(x.m_name)) +
             "` cannot point outside of its symbol table");
-        // Check both `name` and `orig_name` that `orig_name` points
-        // to GenericProcedure (if applicable), both external and non
-        // external
-        const ASR::symbol_t *fn = ASRUtils::symbol_get_past_external(x.m_name);
+
+        const ASR::symbol_t* fn =
+            ASRUtils::symbol_get_past_external(x.m_name);
+
         if (check_external) {
-            require(ASR::is_a<ASR::Function_t>(*fn) ||
-                    (ASR::is_a<ASR::Variable_t>(*fn) &&
-                    ASR::is_a<ASR::FunctionType_t>(*ASRUtils::type_get_past_pointer(ASRUtils::symbol_type(fn)))) ||
-                    ASR::is_a<ASR::StructMethodDeclaration_t>(*fn),
-                "FunctionCall::m_name must be a Function or Variable with FunctionType");
+            require(
+                ASR::is_a<ASR::Function_t>(*fn) ||
+                (
+                    ASR::is_a<ASR::Variable_t>(*fn) &&
+                    ASR::is_a<ASR::FunctionType_t>(
+                        *ASRUtils::type_get_past_pointer(
+                            ASRUtils::symbol_type(fn)
+                        )
+                    )
+                ) ||
+                ASR::is_a<ASR::StructMethodDeclaration_t>(*fn),
+                "FunctionCall::m_name must be a Function or "
+                "Variable with FunctionType"
+            );
         }
 
-        if( fn && ASR::is_a<ASR::Function_t>(*fn) ) {
-            ASR::Function_t* fn_ = ASR::down_cast<ASR::Function_t>(fn);
+        if (fn && ASR::is_a<ASR::Function_t>(*fn)) {
+            ASR::Function_t* fn_ =
+                ASR::down_cast<ASR::Function_t>(fn);
+
             require(fn_->m_return_var != nullptr,
-                    "FunctionCall::m_name " + std::string(fn_->m_name) +
-                    " must be returning a non-void value.");
+                "FunctionCall::m_name " +
+                std::string(fn_->m_name) +
+                " must be returning a non-void value.");
         }
+
         verify_args(x);
         visit_ttype(*x.m_type);
     }
@@ -1851,15 +1899,66 @@ public:
     }
 
     void visit_DoConcurrentLoop(const DoConcurrentLoop_t &x) {
-        for ( size_t i = 0; i < x.n_local; i++ ) {
+        SymbolTable *parent_symtab = current_symtab;
+        require(x.m_symtab != nullptr,
+            "DoConcurrentLoop::m_symtab cannot be nullptr");
+        current_symtab = x.m_symtab;
+        require(x.m_symtab->parent == parent_symtab,
+            "DoConcurrentLoop::m_symtab->parent is not the enclosing symbol table");
+        require(id_symtab_map.find(x.m_symtab->counter) == id_symtab_map.end(),
+            "DoConcurrentLoop::m_symtab->counter must be unique");
+        require(x.m_symtab->asr_owner == (ASR::asr_t*)&x,
+            "DoConcurrentLoop::m_symtab::asr_owner must point to the DoConcurrentLoop");
+
+        id_symtab_map[x.m_symtab->counter] = x.m_symtab;
+
+        for (auto &symbol : x.m_symtab->get_scope()) {
+            LCOMPILERS_ASSERT(symbol.second);
+            this->visit_symbol(*symbol.second);
+        }
+
+        for (size_t i = 0; i < x.n_head; i++) {
+            require(x.m_head[i].m_v != nullptr,
+                "DoConcurrentLoo* index variable cannot be nullptr");
+            require(x.m_head[i].m_start != nullptr,
+                "DoConcurrentLoo* index variable cannot be nullptr");
+            require(x.m_head[i].m_end != nullptr,
+                "DoConcurrentLoo* index variable cannot be nullptr");
+            visit_expr(*x.m_head[i].m_v);
+            visit_expr(*x.m_head[i].m_start);
+            visit_expr(*x.m_head[i].m_end);
+            if (x.m_head[i].m_increment) {
+                visit_expr(*x.m_head[i].m_increment);
+            }
+        }
+
+        for (size_t i = 0; i < x.n_local; i++) {
+            require(x.m_local[i] != nullptr,
+                "DoConcurrentLoo* index variable cannot be nullptr");
             require(ASR::is_a<ASR::Var_t>(*x.m_local[i]),
                 "DoConcurrentLoop::m_local must be a Var");
+            visit_expr(*x.m_local[i]);
         }
-        for ( size_t i = 0; i < x.n_shared; i++ ) {
+
+        for (size_t i = 0; i < x.n_shared; i++) {
+            require(x.m_shared[i] != nullptr,
+                "DoConcurrentLoop::m_shared cannot contain nullptr");
             require(ASR::is_a<ASR::Var_t>(*x.m_shared[i]),
                 "DoConcurrentLoop::m_shared must be a Var");
+            visit_expr(*x.m_shared[i]);
         }
-        BaseWalkVisitor<VerifyVisitor>::visit_DoConcurrentLoop(x);
+
+        for (size_t i = 0; i < x.n_reduction; i++) {
+            require(x.m_reduction[i].m_arg != nullptr, 
+                "DoConcurrentLoop reduction argument cannot be nullptr");
+            visit_expr(*x.m_reduction[i].m_arg);
+        }
+        
+        for (size_t i = 0; i < x.n_body; i++) {
+            LCOMPILERS_ASSERT(x.m_body[i]);
+            visit_stmt(*x.m_body[i]);
+        }
+        current_symtab = parent_symtab;
     }
 
 };

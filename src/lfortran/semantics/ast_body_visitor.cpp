@@ -9125,148 +9125,161 @@ public:
         all_loops_blocks_nesting += 1;
         bool in_loop_copy = in_loop;
         in_loop = true;
-        Vec<ASR::do_loop_head_t> heads;  // Create a vector of loop heads
-        heads.reserve(al,x.n_control);
-        AST::decl_attribute_t *current_type = nullptr;
-        for(size_t i=0;i<x.n_control;i++) {
-            AST::ConcurrentControl_t &h = *(AST::ConcurrentControl_t*) x.m_control[i];
-            if (! h.m_var) {
-                diag.add(Diagnostic(
-                    "Do loop: loop variable is required for now",
-                    Level::Error, Stage::Semantic, {
-                        Label("",{x.base.base.loc})
-                    }));
-                throw SemanticAbort();
-            }
-            if (! h.m_start) {
-                diag.add(Diagnostic(
-                    "Do loop: start condition required for now",
-                    Level::Error, Stage::Semantic, {
-                        Label("",{x.base.base.loc})
-                    }));
-                throw SemanticAbort();
-            }
-            if (! h.m_end) {
-                diag.add(Diagnostic(
-                    "Do loop: end condition required for now",
-                    Level::Error, Stage::Semantic, {
-                        Label("",{x.base.base.loc})
-                    }));
-                throw SemanticAbort();
-            }
-            std::string var_name = to_lower(h.m_var);
-            ASR::expr_t *var = nullptr;
-            if (h.m_type) {
-                current_type = h.m_type;
-            }
-            if (current_type) {
-                // A type-spec (e.g. `do concurrent (integer :: j = ...)`)
-                // declares the index variable. If a variable of the same name
-                // already exists in the current scope, reuse it instead of
-                // adding a duplicate symbol.
-                ASR::symbol_t *var_sym = current_scope->get_symbol(var_name);
-                if (var_sym == nullptr) {
-                    AST::decl_attribute_t *decl_type = current_type;
-                    Vec<ASR::dimension_t> dims;
-                    dims.reserve(al, 1);
-                    ASR::symbol_t *type_declaration;
-                    ASR::ttype_t *type = determine_type(x.base.base.loc, var_name, decl_type, false, false,
-                                                        dims, nullptr, type_declaration, ASR::abiType::Source);
-                    var_sym = ASR::down_cast<ASR::symbol_t>(
-                        ASR::make_Variable_t(al, x.base.base.loc, current_scope, s2c(al, var_name),
-                            nullptr, 0, ASR::intentType::Local, nullptr, nullptr, ASR::storage_typeType::Default,
-                            type, nullptr, ASR::abiType::Source, ASR::Public, ASR::presenceType::Required, false,
-                            false, false, nullptr, false, false, ASR::pass_attrType::NotMethod, nullptr, nullptr, 0));
-                    current_scope->add_symbol(var_name, var_sym);
+        SymbolTable *parent_scope = current_scope;
+        current_scope = al.make_new<SymbolTable>(parent_scope);
+        try {
+            Vec<ASR::do_loop_head_t> heads;  // Create a vector of loop heads
+            heads.reserve(al,x.n_control);
+
+        
+            AST::decl_attribute_t *current_type = nullptr;
+            for(size_t i=0;i<x.n_control;i++) {
+                AST::ConcurrentControl_t &h = *(AST::ConcurrentControl_t*) x.m_control[i];
+                if (! h.m_var) {
+                    diag.add(Diagnostic(
+                        "Do loop: loop variable is required for now",
+                        Level::Error, Stage::Semantic, {
+                            Label("",{x.base.base.loc})
+                        }));
+                    throw SemanticAbort();
                 }
-                var = ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, var_sym));
-            } else {
-                var = ASRUtils::EXPR(resolve_variable(x.base.base.loc, var_name));
-            }
-            visit_expr(*h.m_start);
-            ASR::expr_t *start = ASRUtils::EXPR(tmp);
-            visit_expr(*h.m_end);
-            ASR::expr_t *end = ASRUtils::EXPR(tmp);
-            ASR::expr_t *increment;
-            if (h.m_increment) {
-                visit_expr(*h.m_increment);
-                increment = ASRUtils::EXPR(tmp);
-            } else {
-                increment = nullptr;
-            }
-            ASR::do_loop_head_t head;
-            head.m_v = var;
-            head.m_start = start;
-            head.m_end = end;
-            head.m_increment = increment;
-            head.loc = head.m_v->base.loc;
-            heads.push_back(al, head);
-        }
-        Vec<ASR::stmt_t*> body;
-        body.reserve(al, x.n_body);
-        transform_stmts(body, x.n_body, x.m_body);
-        Vec<ASR::reduction_expr_t> reductions; reductions.reserve(al, 1);
-        Vec<ASR::expr_t*> shared_expr; shared_expr.reserve(al, 1);
-        Vec<ASR::expr_t*> local_expr; local_expr.reserve(al, 1);
-        for (size_t i = 0; i < x.n_locality; i++ ) {
-            AST::concurrent_locality_t *locality = x.m_locality[i];
-            if ( locality->type == AST::concurrent_localityType::ConcurrentReduce ) {
-                AST::ConcurrentReduce_t *reduce = AST::down_cast<AST::ConcurrentReduce_t>(locality);
-                AST::reduce_opType op = reduce->m_op;
-                for ( size_t j = 0; j < reduce->n_vars; j++ ) {
-                    ASR::reduction_expr_t red; red.loc = x.base.base.loc;
-                    if ( op == AST::reduce_opType::ReduceAdd ) {
-                        red.m_op = ASR::reduction_opType::ReduceAdd;
-                    } else if ( op == AST::reduce_opType::ReduceMAX ) {
-                        red.m_op = ASR::reduction_opType::ReduceMAX;
-                    } else if ( op == AST::reduce_opType::ReduceMIN ) {
-                        red.m_op = ASR::reduction_opType::ReduceMIN;
-                    } else if ( op == AST::reduce_opType::ReduceMul ) {
-                        red.m_op = ASR::reduction_opType::ReduceMul;
-                    } else if ( op == AST::reduce_opType::ReduceIAND ) {
-                        red.m_op = ASR::reduction_opType::ReduceIAND;
-                    } else if ( op == AST::reduce_opType::ReduceIOR ) {
-                        red.m_op = ASR::reduction_opType::ReduceIOR;
-                    } else if ( op == AST::reduce_opType::ReduceIEOR ) {
-                        red.m_op = ASR::reduction_opType::ReduceIEOR;
-                    } else {
-                        diag.add(Diagnostic(
-                            "Unknown reduction operation",
-                            Level::Error, Stage::Semantic, {
-                                Label("",{x.base.base.loc})
-                            }));
-                        throw SemanticAbort();
+                if (! h.m_start) {
+                    diag.add(Diagnostic(
+                        "Do loop: start condition required for now",
+                        Level::Error, Stage::Semantic, {
+                            Label("",{x.base.base.loc})
+                        }));
+                    throw SemanticAbort();
+                }
+                if (! h.m_end) {
+                    diag.add(Diagnostic(
+                        "Do loop: end condition required for now",
+                        Level::Error, Stage::Semantic, {
+                            Label("",{x.base.base.loc})
+                        }));
+                    throw SemanticAbort();
+                }
+                std::string var_name = to_lower(h.m_var);
+                ASR::expr_t *var = nullptr;
+                if (h.m_type) {
+                    current_type = h.m_type;
+                }
+                if (current_type) {
+                    // A type-spec (e.g. `do concurrent (integer :: j = ...)`)
+                    // A type-spec declares the index variable in the DO CONCURRENT construct's local scope.
+                    ASR::symbol_t *var_sym = current_scope->get_symbol(var_name);
+                    if (var_sym == nullptr) {
+                        AST::decl_attribute_t *decl_type = current_type;
+                        Vec<ASR::dimension_t> dims;
+                        dims.reserve(al, 1);
+                        ASR::symbol_t *type_declaration;
+                        ASR::ttype_t *type = determine_type(x.base.base.loc, var_name, decl_type, false, false,
+                                                            dims, nullptr, type_declaration, ASR::abiType::Source);
+                        var_sym = ASR::down_cast<ASR::symbol_t>(
+                            ASR::make_Variable_t(al, x.base.base.loc, current_scope, s2c(al, var_name),
+                                nullptr, 0, ASR::intentType::Local, nullptr, nullptr, ASR::storage_typeType::Default,
+                                type, nullptr, ASR::abiType::Source, ASR::Public, ASR::presenceType::Required, false,
+                                false, false, nullptr, false, false, ASR::pass_attrType::NotMethod, nullptr, nullptr, 0));
+                        current_scope->add_symbol(var_name, var_sym);
                     }
-                    red.m_arg = ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, current_scope->resolve_symbol(to_lower(reduce->m_vars[j]))));
-                    reductions.push_back(al, red);
+                    var = ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, var_sym));
+                } else {
+                    var = ASRUtils::EXPR(resolve_variable(x.base.base.loc, var_name));
                 }
-            } else if ( locality->type == AST::concurrent_localityType::ConcurrentShared ) {
-                AST::ConcurrentShared_t *shared = AST::down_cast<AST::ConcurrentShared_t>(locality);
-                for ( size_t j = 0; j < shared->n_vars; j++ ) {
-                    shared_expr.push_back(al, ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, current_scope->resolve_symbol(to_lower(shared->m_vars[j])))));
+                visit_expr(*h.m_start);
+                ASR::expr_t *start = ASRUtils::EXPR(tmp);
+                visit_expr(*h.m_end);
+                ASR::expr_t *end = ASRUtils::EXPR(tmp);
+                ASR::expr_t *increment;
+                if (h.m_increment) {
+                    visit_expr(*h.m_increment);
+                    increment = ASRUtils::EXPR(tmp);
+                } else {
+                    increment = nullptr;
                 }
-            } else if ( locality->type == AST::concurrent_localityType::ConcurrentLocal ) {
-                AST::ConcurrentLocal_t *private_ = AST::down_cast<AST::ConcurrentLocal_t>(locality);
-                for ( size_t j = 0; j < private_->n_vars; j++ ) {
-                    // check if loop variable is part of local expr
-                    for(size_t k=0;k<x.n_control;k++) {
-                        AST::ConcurrentControl_t &h = *(AST::ConcurrentControl_t*) x.m_control[k];
-                        ASR::expr_t *var = ASRUtils::EXPR(resolve_variable(x.base.base.loc, to_lower(h.m_var)));
-                        if (current_scope->resolve_symbol(to_lower(private_->m_vars[j])) == ASR::down_cast<ASR::Var_t>(var)->m_v ) {
+                ASR::do_loop_head_t head;
+                head.m_v = var;
+                head.m_start = start;
+                head.m_end = end;
+                head.m_increment = increment;
+                head.loc = head.m_v->base.loc;
+                heads.push_back(al, head);
+            }
+            Vec<ASR::stmt_t*> body;
+            body.reserve(al, x.n_body);
+            transform_stmts(body, x.n_body, x.m_body);
+            Vec<ASR::reduction_expr_t> reductions; reductions.reserve(al, 1);
+            Vec<ASR::expr_t*> shared_expr; shared_expr.reserve(al, 1);
+            Vec<ASR::expr_t*> local_expr; local_expr.reserve(al, 1);
+            for (size_t i = 0; i < x.n_locality; i++ ) {
+                AST::concurrent_locality_t *locality = x.m_locality[i];
+                if ( locality->type == AST::concurrent_localityType::ConcurrentReduce ) {
+                    AST::ConcurrentReduce_t *reduce = AST::down_cast<AST::ConcurrentReduce_t>(locality);
+                    AST::reduce_opType op = reduce->m_op;
+                    for ( size_t j = 0; j < reduce->n_vars; j++ ) {
+                        ASR::reduction_expr_t red; red.loc = x.base.base.loc;
+                        if ( op == AST::reduce_opType::ReduceAdd ) {
+                            red.m_op = ASR::reduction_opType::ReduceAdd;
+                        } else if ( op == AST::reduce_opType::ReduceMAX ) {
+                            red.m_op = ASR::reduction_opType::ReduceMAX;
+                        } else if ( op == AST::reduce_opType::ReduceMIN ) {
+                            red.m_op = ASR::reduction_opType::ReduceMIN;
+                        } else if ( op == AST::reduce_opType::ReduceMul ) {
+                            red.m_op = ASR::reduction_opType::ReduceMul;
+                        } else if ( op == AST::reduce_opType::ReduceIAND ) {
+                            red.m_op = ASR::reduction_opType::ReduceIAND;
+                        } else if ( op == AST::reduce_opType::ReduceIOR ) {
+                            red.m_op = ASR::reduction_opType::ReduceIOR;
+                        } else if ( op == AST::reduce_opType::ReduceIEOR ) {
+                            red.m_op = ASR::reduction_opType::ReduceIEOR;
+                        } else {
                             diag.add(Diagnostic(
-                                "Do concurrent loop variable `" + std::string(private_->m_vars[j]) + "` cannot be part of local expression",
+                                "Unknown reduction operation",
                                 Level::Error, Stage::Semantic, {
-                                    Label("",{private_->base.base.loc})
+                                    Label("",{x.base.base.loc})
                                 }));
                             throw SemanticAbort();
                         }
+                        red.m_arg = ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, current_scope->resolve_symbol(to_lower(reduce->m_vars[j]))));
+                        reductions.push_back(al, red);
                     }
-                    local_expr.push_back(al, ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, current_scope->resolve_symbol(to_lower(private_->m_vars[j])))));
+                } else if ( locality->type == AST::concurrent_localityType::ConcurrentShared ) {
+                    AST::ConcurrentShared_t *shared = AST::down_cast<AST::ConcurrentShared_t>(locality);
+                    for ( size_t j = 0; j < shared->n_vars; j++ ) {
+                        shared_expr.push_back(al, ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, current_scope->resolve_symbol(to_lower(shared->m_vars[j])))));
+                    }
+                } else if ( locality->type == AST::concurrent_localityType::ConcurrentLocal ) {
+                    AST::ConcurrentLocal_t *private_ = AST::down_cast<AST::ConcurrentLocal_t>(locality);
+                    for ( size_t j = 0; j < private_->n_vars; j++ ) {
+                        // check if loop variable is part of local expr
+                        for(size_t k=0;k<x.n_control;k++) {
+                            AST::ConcurrentControl_t &h = *(AST::ConcurrentControl_t*) x.m_control[k];
+                            ASR::expr_t *var = ASRUtils::EXPR(resolve_variable(x.base.base.loc, to_lower(h.m_var)));
+                            if (current_scope->resolve_symbol(to_lower(private_->m_vars[j])) == ASR::down_cast<ASR::Var_t>(var)->m_v ) {
+                                diag.add(Diagnostic(
+                                    "Do concurrent loop variable `" + std::string(private_->m_vars[j]) + "` cannot be part of local expression",
+                                    Level::Error, Stage::Semantic, {
+                                        Label("",{private_->base.base.loc})
+                                    }));
+                                throw SemanticAbort();
+                            }
+                        }
+                        local_expr.push_back(al, ASRUtils::EXPR(ASR::make_Var_t(al, x.base.base.loc, current_scope->resolve_symbol(to_lower(private_->m_vars[j])))));
+                    }
                 }
             }
+            tmp = ASR::make_DoConcurrentLoop_t(al, x.base.base.loc, current_scope, heads.p, heads.n, shared_expr.p, shared_expr.n, local_expr.p, local_expr.n, reductions.p, reductions.n, body.p,
+                    body.size());
         }
-        tmp = ASR::make_DoConcurrentLoop_t(al, x.base.base.loc, heads.p, heads.n, shared_expr.p, shared_expr.n, local_expr.p, local_expr.n, reductions.p, reductions.n, body.p,
-                body.size());
+        catch (...) {
+            // Restore all visitor state before continue-compilation
+            // catches the semantic error.
+            current_scope = parent_scope;
+            all_loops_blocks_nesting -= 1;
+            in_loop = in_loop_copy;
+            throw;
+        }
+        current_scope = parent_scope;
         all_loops_blocks_nesting -= 1;
         in_loop = in_loop_copy;
     }
@@ -9401,7 +9414,8 @@ public:
             Vec<ASR::stmt_t*> body;
             body.reserve(al, x.n_body);
             transform_stmts(body, x.n_body, x.m_body);
-            tmp = ASR::make_DoConcurrentLoop_t(al, x.base.base.loc, heads.p, heads.n,
+            SymbolTable *loop_scope = al.make_new<SymbolTable>(current_scope);
+            tmp = ASR::make_DoConcurrentLoop_t(al, x.base.base.loc, loop_scope, heads.p, heads.n,
                 nullptr, 0, nullptr, 0, nullptr, 0, body.p, body.size());
         }
         all_loops_blocks_nesting -= 1;

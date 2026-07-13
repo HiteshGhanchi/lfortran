@@ -119,6 +119,17 @@ Result<ASR::TranslationUnit_t*> ast_to_asr(Allocator &al,
         } else {
             return res.error;
         }
+        // body_visitor can leave a partially constructed ASR when collecting
+        // diagnostics from invalid source. Only traverse the completed ASR when
+        // semantic analysis has not reported errors.
+        if (!diagnostics.has_error()) {
+            PassUtils::UpdateDependenciesVisitor body_dependencies_visitor(al);
+            body_dependencies_visitor.visit_TranslationUnit(*tu);
+        }
+        // The body visitor introduces executable statements and scoped symbols.
+        // Recompute dependencies from the completed ASR before verification.
+        PassUtils::UpdateDependenciesVisitor body_dependencies_visitor(al);
+        body_dependencies_visitor.visit_TranslationUnit(*tu);
         if (compiler_options.rtlib) load_rtlib();
         if (compiler_options.po.dump_all_passes) {
             std::ofstream outfile ("pass_00_initial_asr_02.clj");
