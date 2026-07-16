@@ -1105,7 +1105,17 @@ class ParallelRegionVisitor :
             }
 
             for (size_t i = 0; i < do_loop.n_body; ++i) {
-                flattened_body.push_back(do_loop.m_body[i]);
+                ASR::stmt_t* stmt = do_loop.m_body[i];
+                // The outer DoConcurrentLoop is replaced by a DoLoop inside the generated
+                // function. Any directly nested DoConcurrentLoop is therefore moved from
+                // the outer loop scope into the generated function scope.
+                if (ASR::is_a<ASR::DoConcurrentLoop_t>(*stmt)) {
+                    ASR::DoConcurrentLoop_t* nested_loop =
+                    ASR::down_cast<ASR::DoConcurrentLoop_t>(stmt);
+                    LCOMPILERS_ASSERT(nested_loop->m_symtab);
+                    nested_loop->m_symtab->parent = current_scope;
+                }
+                flattened_body.push_back(stmt);
             }
             //  Collapse Ends Here
 
