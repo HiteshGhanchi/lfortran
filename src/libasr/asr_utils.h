@@ -6232,7 +6232,7 @@ class SymbolDuplicator {
         duplicate_SymbolTable(associate_block->m_symtab, associate_block_symtab);
         Vec<ASR::stmt_t*> new_body;
         new_body.reserve(al, associate_block->n_body);
-        ASRUtils::ExprStmtDuplicator node_duplicator(al);
+        ASRUtils::ExprStmtWithScopeDuplicator node_duplicator(al, associate_block_symtab);
         node_duplicator.allow_procedure_calls = true;
         node_duplicator.allow_reshape = true;
         for( size_t i = 0; i < associate_block->n_body; i++ ) {
