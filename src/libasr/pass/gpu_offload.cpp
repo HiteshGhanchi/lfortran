@@ -76,22 +76,17 @@ public:
         // when a do concurrent is inside one or more nested Blocks)
         if (ASR::is_a<ASR::Variable_t>(*x.m_v)) {
             ASR::Variable_t *var = ASR::down_cast<ASR::Variable_t>(x.m_v);
-            if (var->m_parent_symtab->asr_owner &&
-                ASR::is_a<ASR::Block_t>(
-                    *ASR::down_cast<ASR::symbol_t>(
-                        var->m_parent_symtab->asr_owner))) {
-                if (enclosing_scopes.find(var->m_parent_symtab)
-                        == enclosing_scopes.end()) {
-                    return;
+            ASR::asr_t *owner = var->m_parent_symtab->asr_owner;
+            if (owner && owner->type== ASR::asrType::symbol) {
+                ASR::symbol_t *owner_sym = ASR::down_cast<ASR::symbol_t>(owner);
+
+                if (ASR::is_a<ASR::Block_t>(*owner_sym)) {
+                    if (enclosing_scopes.find(var->m_parent_symtab) == enclosing_scopes.end()) {
+                        return;
+                    }
                 }
-            }
-            // Skip variables local to AssociateBlock scopes — they are
-            // internal aliases that stay in the AssociateBlock's symtab
-            if (var->m_parent_symtab->asr_owner &&
-                ASR::is_a<ASR::AssociateBlock_t>(
-                    *ASR::down_cast<ASR::symbol_t>(
-                        var->m_parent_symtab->asr_owner))) {
-                return;
+                
+                if (ASR::is_a<ASR::AssociateBlock_t>(*owner_sym)) return;
             }
         }
         std::string name = ASRUtils::symbol_name(x.m_v);
@@ -274,17 +269,22 @@ public:
             // Skip variables local to Block or AssociateBlock scopes
             bool is_block_local = false;
             if (ASR::is_a<ASR::Variable_t>(*v->m_v)) {
-                ASR::Variable_t *var = ASR::down_cast<ASR::Variable_t>(v->m_v);
-                if (var->m_parent_symtab->asr_owner) {
-                    ASR::symbol_t *owner = ASR::down_cast<ASR::symbol_t>(
-                        var->m_parent_symtab->asr_owner);
-                    if (ASR::is_a<ASR::Block_t>(*owner)) {
-                        if (enclosing_scopes.find(var->m_parent_symtab)
-                                == enclosing_scopes.end()) {
+                ASR::Variable_t *var =
+                    ASR::down_cast<ASR::Variable_t>(v->m_v);
+
+                ASR::asr_t *owner = var->m_parent_symtab->asr_owner;
+
+                if (owner && owner->type == ASR::asrType::symbol) {
+                    ASR::symbol_t *owner_sym =
+                        ASR::down_cast<ASR::symbol_t>(owner);
+
+                    if (ASR::is_a<ASR::Block_t>(*owner_sym)) {
+                        if (enclosing_scopes.find(var->m_parent_symtab) == enclosing_scopes.end()) {
                             is_block_local = true;
                         }
                     }
-                    if (ASR::is_a<ASR::AssociateBlock_t>(*owner)) {
+
+                    if (ASR::is_a<ASR::AssociateBlock_t>(*owner_sym)) {
                         is_block_local = true;
                     }
                 }
@@ -302,7 +302,9 @@ public:
             ASR::StructInstanceMember_t *sm =
                 ASR::down_cast<ASR::StructInstanceMember_t>(x.m_target);
             if (ASR::is_a<ASR::Var_t>(*sm->m_v)) {
-                ASR::Var_t *v = ASR::down_cast<ASR::Var_t>(sm->m_v);
+                ASR::Var_t *v =
+                    ASR::down_cast<ASR::Var_t>(sm->m_v);
+
                 std::string name = ASRUtils::symbol_name(v->m_v);
                 assigned_vars.insert(name);
             }
@@ -4581,21 +4583,22 @@ public:
                     new_dc_body.push_back(al, resolved_stmts.p[ri]);
                 }
                 // Migrate ExternalSymbol entries from the
-                // AssociateBlock's symtab to the enclosing scope
+                // AssociateBlock's symtab to the Do Concurrent scope
                 // before erasing it (same as above for BlockCall).
+                SymbolTable *dc_scope = x.m_symtab;
                 for (auto &es_item : ab->m_symtab->get_scope()) {
                     if (!ASR::is_a<ASR::ExternalSymbol_t>(
                             *es_item.second)) continue;
-                    if (!current_scope->get_symbol(es_item.first)) {
+                    if (!dc_scope->get_symbol(es_item.first)) {
                         ASR::down_cast<ASR::ExternalSymbol_t>(
                             es_item.second)->m_parent_symtab =
-                                current_scope;
-                        current_scope->add_symbol(es_item.first,
+                                dc_scope;
+                        dc_scope->add_symbol(es_item.first,
                             es_item.second);
                     }
                 }
                 std::string ab_name = ab->m_name;
-                current_scope->erase_symbol(ab_name);
+                dc_scope->erase_symbol(ab_name);
                 dc_changed = true;
             }
             if (dc_changed) {
@@ -4762,7 +4765,15 @@ public:
         for (auto &name : assigned_vars) {
             if (loop_var_set.count(name)) continue;
             if (all_reduction_targets.count(name)) continue;
-            if (post_loop_vars.count(name)) continue;
+            ASR::symbol_t *sym = x.m_symtab->resolve_symbol(name);
+            bool is_dc_local = false;
+            if (sym && ASR::is_a<ASR::Variable_t>(*sym)) {
+                ASR::Variable_t *var =
+                ASR::down_cast<ASR::Variable_t>(sym);
+                is_dc_local = var->m_parent_symtab == x.m_symtab;
+            }
+            // A construct-local variable cannot be a host live-out.
+            if (!is_dc_local && post_loop_vars.count(name)) continue;
             auto it = involved_syms.find(name);
             if (it != involved_syms.end()) {
                 ASR::ttype_t *type = it->second.first;
@@ -4774,6 +4785,23 @@ public:
 
         // Remove local scalars from involved_syms (they become kernel locals)
         for (auto &name : local_scalar_names) {
+            involved_syms.erase(name);
+        }
+
+        // Collect non-scalar variables owned by the DO CONCURRENT scope.
+        // These are construct-local temporaries and must become kernel locals,
+        // not host-side kernel parameters.
+        std::set<std::string> dc_local_names;
+
+        for (auto &[name, info] : involved_syms) {
+            ASR::symbol_t *sym = x.m_symtab->get_symbol(name);
+
+            if (sym && ASR::is_a<ASR::Variable_t>(*sym)) {
+                dc_local_names.insert(name);
+            }
+        }
+
+        for (const std::string &name : dc_local_names) {
             involved_syms.erase(name);
         }
 
@@ -4812,6 +4840,16 @@ public:
             for (auto &name : assigned_vars) {
                 if (loop_var_set.count(name)) continue;
                 if (local_scalar_names.count(name)) continue;
+                // Variables owned by the DO CONCURRENT scope are construct-local
+                // and must not be copied back to the host as live-out scalars.
+                ASR::symbol_t *sym = x.m_symtab->resolve_symbol(name);
+                    if (sym && ASR::is_a<ASR::Variable_t>(*sym)) {
+                        ASR::Variable_t *var =
+                        ASR::down_cast<ASR::Variable_t>(sym);
+                        if (var->m_parent_symtab == x.m_symtab) {
+                            continue;
+                        }
+                    }
                 auto it = involved_syms.find(name);
                 if (it != involved_syms.end()) {
                     ASR::ttype_t *type = it->second.first;
@@ -4823,7 +4861,7 @@ public:
             for (auto &name : liveout_names) {
                 auto it = involved_syms.find(name);
                 ASR::ttype_t *scalar_type = it->second.first;
-                ASR::symbol_t *orig_sym = current_scope->resolve_symbol(name);
+                ASR::symbol_t *orig_sym = x.m_symtab->resolve_symbol(name);
 
                 ASR::dimension_t dim;
                 dim.loc = loc;
@@ -5464,9 +5502,31 @@ public:
             kernel_scope->add_symbol(lvn, param);
         }
 
+        // Create non-scalar DO CONCURRENT-local variables in kernel scope.
+        for (const std::string &name : dc_local_names) {
+            if (kernel_scope->get_symbol(name)) continue;
+
+            ASR::symbol_t *orig_sym = x.m_symtab->get_symbol(name);
+            if (!orig_sym || !ASR::is_a<ASR::Variable_t>(*orig_sym)) {
+                continue;
+            }
+
+            ASR::Variable_t *orig_var = ASR::down_cast<ASR::Variable_t>(orig_sym);
+
+            ASR::symbol_t *new_var = ASR::down_cast<ASR::symbol_t>(ASRUtils::make_Variable_t_util(
+                        al, loc, kernel_scope, s2c(al, name),
+                        nullptr, 0, ASR::intentType::Local,
+                        nullptr, nullptr, orig_var->m_storage,
+                        ASRUtils::duplicate_type(al, orig_var->m_type),
+                        orig_var->m_type_declaration, orig_var->m_abi,
+                        orig_var->m_access, ASR::presenceType::Required, false));
+
+            kernel_scope->add_symbol(name, new_var);
+        }
+
         // Create local scalar temporaries in kernel scope
         for (auto &name : local_scalar_names) {
-            auto it_orig = orig_scope->resolve_symbol(name);
+            ASR::symbol_t *it_orig = x.m_symtab->resolve_symbol(name);
             if (!it_orig) continue;
             ASR::ttype_t *type = ASRUtils::symbol_type(it_orig);
             ASR::symbol_t *type_decl = import_struct_type(it_orig,
