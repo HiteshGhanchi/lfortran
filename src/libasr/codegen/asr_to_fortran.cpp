@@ -1289,6 +1289,19 @@ public:
 
         r += "do concurrent";
         r += " ( ";
+
+        if (x.n_head > 0 &&
+                ASR::is_a<ASR::Var_t>(*x.m_head[0].m_v)) {
+            ASR::symbol_t* loop_var =
+                ASR::down_cast<ASR::Var_t>(
+                    x.m_head[0].m_v
+                )->m_v;
+
+            if (ASRUtils::symbol_parent_symtab(loop_var) == x.m_symtab) {
+                r += get_type(ASRUtils::symbol_type(loop_var));
+                r += " :: ";
+            }
+        }
         for (size_t i = 0; i < x.n_head; i++) {
             visit_expr(*x.m_head[i].m_v);
             r += src;

@@ -46,6 +46,30 @@ inline std::pair<int, int> classify_gpu_kernel_args(
                 ASR::is_a<ASR::StructType_t>(
                     *ASRUtils::extract_type(type))) {
             n_buffer++;
+            // Metal synthesizes one size scalar per dimension for
+            // assumed-shape array arguments. These values are packed
+            // into the scalar argument buffer.
+            if (ASRUtils::is_array(type)) {
+                std::string arg_name(var->m_name);
+                if (arg_name.substr(0, 2) != "__") {
+                    ASR::ttype_t *array_type =
+                    ASRUtils::type_get_past_allocatable(type);
+                    if (ASR::is_a<ASR::Array_t>(*array_type)) {
+                        ASR::Array_t *array =
+                        ASR::down_cast<ASR::Array_t>(array_type);
+                        bool has_null_dimension = false;
+                        for (size_t d = 0; d < array->n_dims; d++) {
+                            if (!array->m_dims[d].m_length) {
+                                has_null_dimension = true;
+                                break;
+                            }
+                        }
+                        if (has_null_dimension) {
+                            n_scalar += array->n_dims;
+                        }
+                    }
+                }
+            }
             if (ASRUtils::is_array(type) && var->m_type_declaration) {
                 ASR::symbol_t *s = ASRUtils::symbol_get_past_external(
                     var->m_type_declaration);
