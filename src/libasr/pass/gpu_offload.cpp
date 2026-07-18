@@ -102,6 +102,7 @@ class ContainsFunctionCall : public ASR::BaseWalkVisitor<ContainsFunctionCall> {
 public:
     bool found = false;
     void visit_FunctionCall(const ASR::FunctionCall_t &) { found = true; }
+    void visit_IntrinsicArrayFunction(const ASR::IntrinsicArrayFunction_t &) { found = true; }
 };
 
 static bool expr_has_function_call(ASR::expr_t *expr) {
