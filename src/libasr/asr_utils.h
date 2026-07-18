@@ -5958,8 +5958,6 @@ class ExprStmtWithScopeDuplicator: public ASR::BaseExprStmtDuplicator<ExprStmtWi
             x->m_strict_bounds_checking);
     }
 
-    ASR::asr_t* duplicate_DoConcurrentLoop(ASR::DoConcurrentLoop_t* x);
-
 };
 
 
@@ -6232,7 +6230,7 @@ class SymbolDuplicator {
         duplicate_SymbolTable(associate_block->m_symtab, associate_block_symtab);
         Vec<ASR::stmt_t*> new_body;
         new_body.reserve(al, associate_block->n_body);
-        ASRUtils::ExprStmtWithScopeDuplicator node_duplicator(al, associate_block_symtab);
+        ASRUtils::ExprStmtDuplicator node_duplicator(al);
         node_duplicator.allow_procedure_calls = true;
         node_duplicator.allow_reshape = true;
         for( size_t i = 0; i < associate_block->n_body; i++ ) {
@@ -6374,8 +6372,7 @@ class SymbolDuplicator {
 
         Vec<ASR::stmt_t*> new_body;
         new_body.reserve(al, block_t->n_body);
-        ASRUtils::ExprStmtWithScopeDuplicator node_duplicator(al, block_symtab);
-        node_duplicator.use_resolve_symbol = true;
+        ASRUtils::ExprStmtDuplicator node_duplicator(al);
         node_duplicator.allow_procedure_calls = true;
         node_duplicator.allow_reshape = true;
         for( size_t i = 0; i < block_t->n_body; i++ ) {

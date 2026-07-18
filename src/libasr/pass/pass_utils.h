@@ -522,93 +522,50 @@ namespace LCompilers {
                 }
 
                 void visit_FunctionCall(const ASR::FunctionCall_t& x) {
-                    if (fill_variable_dependencies) {
-                        variable_dependencies.push_back(
-                            al,
-                            ASRUtils::symbol_name(x.m_name)
-                        );
+                    if(fill_variable_dependencies){
+                        variable_dependencies.push_back(al, ASRUtils::symbol_name(x.m_name));
                     }
-
                     if (fill_function_dependencies) {
+                        ASR::symbol_t* asr_owner_sym = nullptr;
+                        if (current_scope->asr_owner && ASR::is_a<ASR::symbol_t>(*current_scope->asr_owner)) {
+                            asr_owner_sym = ASR::down_cast<ASR::symbol_t>(current_scope->asr_owner);
+                        }
+
                         SymbolTable* temp_scope = current_scope;
 
-                        // Walk through nested construct scopes to find the procedure
-                        // scope to which this dependency belongs.
-                        while (temp_scope->parent && temp_scope->asr_owner) {
-                            ASR::asr_t* owner = temp_scope->asr_owner;
-
-                            // DoConcurrentLoop is a statement-owned scope.
-                            if (ASR::is_a<ASR::stmt_t>(*owner)) {
-                                ASR::stmt_t* owner_stmt =
-                                    ASR::down_cast<ASR::stmt_t>(owner);
-
-                                if (ASR::is_a<ASR::DoConcurrentLoop_t>(
-                                        *owner_stmt)) {
-                                    temp_scope = temp_scope->parent;
-                                    continue;
+                        if (asr_owner_sym &&
+                            !ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name) &&
+                            !ASR::is_a<ASR::Variable_t>(*x.m_name)) {
+                            while (temp_scope->parent && temp_scope->asr_owner &&
+                                   ASR::is_a<ASR::symbol_t>(*temp_scope->asr_owner)) {
+                                ASR::symbol_t* temp_owner_sym =
+                                    ASR::down_cast<ASR::symbol_t>(temp_scope->asr_owner);
+                                if (!ASR::is_a<ASR::AssociateBlock_t>(*temp_owner_sym) &&
+                                    !ASR::is_a<ASR::Block_t>(*temp_owner_sym)) {
+                                    break;
                                 }
+                                temp_scope = temp_scope->parent;
                             }
-
-                            // Block and AssociateBlock are symbol-owned scopes.
-                            if (ASR::is_a<ASR::symbol_t>(*owner)) {
-                                ASR::symbol_t* owner_sym =
-                                    ASR::down_cast<ASR::symbol_t>(owner);
-
-                                if (ASR::is_a<ASR::Block_t>(*owner_sym) ||
-                                    ASR::is_a<ASR::AssociateBlock_t>(
-                                        *owner_sym)) {
-                                    temp_scope = temp_scope->parent;
-                                    continue;
-                                }
+                            if (temp_scope->get_counter() != ASRUtils::symbol_parent_symtab(x.m_name)->get_counter()) {
+                                function_dependencies.push_back(al, ASRUtils::symbol_name(x.m_name));
                             }
-
-                            // Function, Program, Module, etc.: stop walking upward.
-                            break;
                         }
 
-                        SymbolTable* callee_scope =
-                            ASRUtils::symbol_parent_symtab(x.m_name);
-
-                        if (!ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name) &&
-                            !ASR::is_a<ASR::Variable_t>(*x.m_name) &&
-                            temp_scope->get_counter() !=
-                                callee_scope->get_counter()) {
-                            function_dependencies.push_back(
-                                al,
-                                ASRUtils::symbol_name(x.m_name)
-                            );
-                        }
-
-                        if (_return_var_or_intent_out &&
-                            temp_scope->get_counter() !=
-                                callee_scope->get_counter() &&
+                        if (_return_var_or_intent_out && temp_scope->get_counter() != ASRUtils::symbol_parent_symtab(x.m_name)->get_counter() &&
                             !ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name)) {
-                            function_dependencies.push_back(
-                                al,
-                                ASRUtils::symbol_name(x.m_name)
-                            );
+                            function_dependencies.push_back(al, ASRUtils::symbol_name(x.m_name));
                         }
                     }
-
-                    if (ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name) &&
-                        fill_module_dependencies) {
-                        ASR::ExternalSymbol_t* x_m_name =
-                            ASR::down_cast<ASR::ExternalSymbol_t>(x.m_name);
-
-                        if (x_m_name->m_external &&
-                            ASR::is_a<ASR::Module_t>(
-                                *ASRUtils::get_asr_owner(
-                                    x_m_name->m_external))) {
-                            module_dependencies.push_back(
-                                al,
-                                x_m_name->m_module_name
-                            );
+                    if( ASR::is_a<ASR::ExternalSymbol_t>(*x.m_name) &&
+                        fill_module_dependencies ) {
+                        ASR::ExternalSymbol_t* x_m_name = ASR::down_cast<ASR::ExternalSymbol_t>(x.m_name);
+                        if( ASR::is_a<ASR::Module_t>(*ASRUtils::get_asr_owner(x_m_name->m_external)) ) {
+                            module_dependencies.push_back(al, x_m_name->m_module_name);
                         }
                     }
-
-                    BaseWalkVisitor<UpdateDependenciesVisitor>::
-                        visit_FunctionCall(x);
+                    BaseWalkVisitor<UpdateDependenciesVisitor>::visit_FunctionCall(x);
                 }
+
                 void visit_SubroutineCall(const ASR::SubroutineCall_t& x) {
                     if (fill_function_dependencies) {
                         ASR::symbol_t* asr_owner_sym = nullptr;
@@ -691,23 +648,6 @@ namespace LCompilers {
                     }
                     xx.m_realloc_lhs &= is_allocatable;
                     BaseWalkVisitor<UpdateDependenciesVisitor>::visit_Assignment(x);
-                }
-
-                void visit_DoConcurrentLoop(const ASR::DoConcurrentLoop_t& x) {
-                    LCOMPILERS_ASSERT(x.m_symtab);
-                    SymbolTable* current_scope_copy = current_scope;
-                    current_scope = x.m_symtab;
-                    // Visit symbols owned by the DoConcurrentLoop scope.
-                    // This includes nested AssociateBlock symbols whose selector
-                    // expressions can contain function calls and dependencies.
-                    for (auto& item : x.m_symtab->get_scope()) {
-                        LCOMPILERS_ASSERT(item.second);
-                        this->visit_symbol(*item.second);
-                    }
-                    // Visit loop heads, locality lists, reductions and executable body.
-                    BaseWalkVisitor<UpdateDependenciesVisitor>::
-                        visit_DoConcurrentLoop(x);
-                    current_scope = current_scope_copy;
                 }
             // TODO: Uncomment the following in LFortran
             /*

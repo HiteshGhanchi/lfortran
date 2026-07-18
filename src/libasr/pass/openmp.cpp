@@ -1105,17 +1105,7 @@ class ParallelRegionVisitor :
             }
 
             for (size_t i = 0; i < do_loop.n_body; ++i) {
-                ASR::stmt_t* stmt = do_loop.m_body[i];
-                // The outer DoConcurrentLoop is replaced by a DoLoop inside the generated
-                // function. Any directly nested DoConcurrentLoop is therefore moved from
-                // the outer loop scope into the generated function scope.
-                if (ASR::is_a<ASR::DoConcurrentLoop_t>(*stmt)) {
-                    ASR::DoConcurrentLoop_t* nested_loop =
-                    ASR::down_cast<ASR::DoConcurrentLoop_t>(stmt);
-                    LCOMPILERS_ASSERT(nested_loop->m_symtab);
-                    nested_loop->m_symtab->parent = current_scope;
-                }
-                flattened_body.push_back(stmt);
+                flattened_body.push_back(do_loop.m_body[i]);
             }
             //  Collapse Ends Here
 
@@ -1668,13 +1658,6 @@ class ParallelRegionVisitor :
 
                 ReplaceSymbolsVisitor v(*fn_scope);
                 v.visit_DoConcurrentLoop(x);
-
-                // The loop is moved from its original enclosing scope into the generated
-                // offloading function. Update the loop-owned symbol table accordingly.
-                ASR::DoConcurrentLoop_t& xx = const_cast<ASR::DoConcurrentLoop_t&>(x);
-
-                LCOMPILERS_ASSERT(xx.m_symtab);
-                xx.m_symtab->parent = fn_scope;
 
                 Vec<ASR::stmt_t *> fn_body; fn_body.reserve(al, 1);
                 fn_body.push_back(al, (ASR::stmt_t *)&x);

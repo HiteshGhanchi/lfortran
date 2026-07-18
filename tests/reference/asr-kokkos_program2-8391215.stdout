@@ -382,11 +382,6 @@
                                         .false.
                                     )
                                     (DoConcurrentLoop
-                                        (SymbolTable
-                                            5
-                                            {
-                                                
-                                            })
                                         [((Var 3 i)
                                         (IntegerConstant 1 (Integer 4) Decimal)
                                         (Var 3 n)
@@ -476,11 +471,6 @@
                         .false.
                     )
                     (DoConcurrentLoop
-                        (SymbolTable
-                            4
-                            {
-                                
-                            })
                         [((Var 2 i)
                         (IntegerConstant 1 (Integer 4) Decimal)
                         (Var 2 nsize)

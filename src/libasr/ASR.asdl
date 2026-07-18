@@ -41,7 +41,7 @@ stmt
     | Cycle(identifier? stmt_name)
     | ExplicitDeallocate(expr* vars)
     | ImplicitDeallocate(expr* vars)
-    | DoConcurrentLoop(symbol_table symtab, do_loop_head* head, expr* shared, expr* local, reduction_expr* reduction, stmt* body)
+    | DoConcurrentLoop(do_loop_head* head, expr* shared, expr* local, reduction_expr* reduction, stmt* body)
     | OMPRegion(omp_region_type region, omp_clause* clauses, stmt* body)
     | DoLoop(identifier? name, do_loop_head head, stmt* body, stmt* orelse)
     | ErrorStop(expr? code)

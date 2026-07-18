@@ -123,41 +123,34 @@ class PassArrayByDataProcedureVisitor : public PassUtils::PassVisitor<PassArrayB
         }
 
         ASR::symbol_t* insert_new_procedure(ASR::Function_t* x, std::vector<size_t>& indices) {
-            // Create the duplicated procedure's symbol table first.
+            Vec<ASR::stmt_t*> new_body;
+            new_body.reserve(al, x->n_body);
+            node_duplicator.allow_procedure_calls = true;
+            node_duplicator.allow_reshape = false;
+            for( size_t i = 0; i < x->n_body; i++ ) {
+                node_duplicator.success = true;
+                ASR::stmt_t* new_stmt = node_duplicator.duplicate_stmt(x->m_body[i]);
+                if( !node_duplicator.success ) {
+                    return nullptr;
+                }
+                new_body.push_back(al, new_stmt);
+            }
+
+            node_duplicator.allow_procedure_calls = true;
             SymbolTable* new_symtab = al.make_new<SymbolTable>(current_scope);
             ASRUtils::SymbolDuplicator symbol_duplicator(al);
-
-            // Duplicate external symbols first so other duplicated symbols
-            // can reference them while their types are being duplicated.
-            for (auto& item : x->m_symtab->get_scope()) {
+            // first duplicate the external symbols
+            // so they can be referenced by derived_type
+            for( auto& item: x->m_symtab->get_scope() ) {
                 if (ASR::is_a<ASR::ExternalSymbol_t>(*item.second)) {
                     symbol_duplicator.duplicate_symbol(item.second, new_symtab);
                 }
             }
-
-            // Duplicate all remaining symbols into the new procedure scope.
-            for (auto& item : x->m_symtab->get_scope()) {
+            for( auto& item: x->m_symtab->get_scope() ) {
                 if (!ASR::is_a<ASR::ExternalSymbol_t>(*item.second)) {
                     symbol_duplicator.duplicate_symbol(item.second, new_symtab);
                 }
             }
-            symbol_duplicator.fixup_associate_block_bodies(new_symtab, x->m_symtab);
-            // Duplicate the body after the destination symbol table has been
-            // created and populated. This allows variable references and scoped
-            // statements such as DoConcurrentLoop to use the duplicated scopes.
-            Vec<ASR::stmt_t*> new_body;
-            new_body.reserve(al, x->n_body);
-            ASRUtils::ExprStmtWithScopeDuplicator scoped_node_duplicator(al, new_symtab);
-            scoped_node_duplicator.use_resolve_symbol = true;
-            scoped_node_duplicator.allow_procedure_calls = true;
-            scoped_node_duplicator.allow_reshape = false;
-            for (size_t i = 0; i < x->n_body; i++) {
-                scoped_node_duplicator.success = true;
-                ASR::stmt_t* new_stmt = scoped_node_duplicator.duplicate_stmt(x->m_body[i]);
-                if (!scoped_node_duplicator.success) return nullptr;
-                new_body.push_back(al, new_stmt);
-            }
-
             // The duplicated body's BlockCall statements still reference
             // Block symbols in the original symtab. Remap them to the
             // corresponding duplicated Blocks in new_symtab.
@@ -588,6 +581,40 @@ class EditProcedureVisitor: public ASR::CallReplacerOnExpressionsVisitor<EditPro
 
     EditProcedureVisitor(PassArrayByDataProcedureVisitor& v_):
     v(v_), replacer(v) {}
+
+    void visit_DoConcurrentLoop(const ASR::DoConcurrentLoop_t &x) {
+        SymbolTable *current_scope_copy = current_scope;
+
+        // A typed DO CONCURRENT control is owned by the compiler-generated
+        // Block scope. Visit the loop head and body using that scope so the
+        // construct-local index is not resolved to a same-named symbol in
+        // the enclosing scope.
+        if (x.n_body == 1 &&
+                ASR::is_a<ASR::BlockCall_t>(*x.m_body[0])) {
+            ASR::BlockCall_t *block_call =
+                ASR::down_cast<ASR::BlockCall_t>(x.m_body[0]);
+
+            if (ASR::is_a<ASR::Block_t>(*block_call->m_m)) {
+                ASR::Block_t *block =
+                    ASR::down_cast<ASR::Block_t>(
+                        block_call->m_m);
+
+                if (block->m_name &&
+                        std::string(block->m_name).find(
+                            "~do_concurrent_block_") == 0) {
+                    current_scope = block->m_symtab;
+                }
+            }
+        }
+
+        try {
+            ASR::CallReplacerOnExpressionsVisitor<EditProcedureVisitor>::visit_DoConcurrentLoop(x);
+        } catch (...) {
+            current_scope = current_scope_copy;
+            throw;
+        }
+        current_scope = current_scope_copy;
+    }
 
     void call_replacer() {
         replacer.current_expr = current_expr;
@@ -1526,12 +1553,10 @@ class RemoveArrayByDescriptorProceduresVisitor : public PassUtils::PassVisitor<R
 
         void visit_Program(const ASR::Program_t& x) {
             visit_Unit(x);
-            ASR::ASRPassBaseWalkVisitor<RemoveArrayByDescriptorProceduresVisitor>::visit_Program(x);
         }
 
         void visit_Function(const ASR::Function_t& x) {
             visit_Unit(x);
-            ASR::ASRPassBaseWalkVisitor<RemoveArrayByDescriptorProceduresVisitor>::visit_Function(x);
         }
 
         void visit_Module(const ASR::Module_t& x) {
@@ -1549,23 +1574,16 @@ class RemoveArrayByDescriptorProceduresVisitor : public PassUtils::PassVisitor<R
 
         void visit_Block(const ASR::Block_t& x) {
             visit_Unit(x);
-            ASR::ASRPassBaseWalkVisitor<RemoveArrayByDescriptorProceduresVisitor>::visit_Block(x);
         }
 
         void visit_AssociateBlock(const ASR::AssociateBlock_t& x) {
             visit_Unit(x);
-            ASR::ASRPassBaseWalkVisitor<RemoveArrayByDescriptorProceduresVisitor>::visit_AssociateBlock(x);
         }
 
         void visit_GpuKernelFunction(const ASR::GpuKernelFunction_t& x) {
             visit_Unit(x);
-            ASR::ASRPassBaseWalkVisitor<RemoveArrayByDescriptorProceduresVisitor>::visit_GpuKernelFunction(x);
         }
 
-        void visit_DoConcurrentLoop(const ASR::DoConcurrentLoop_t& x) {
-            visit_Unit(x);
-            ASR::ASRPassBaseWalkVisitor<RemoveArrayByDescriptorProceduresVisitor>::visit_DoConcurrentLoop(x);
-        }
         // Note: We intentionally do NOT update m_proc to the ____N version.
         // The vtable is linkonce_odr and must reference the original
         // (descriptor-based) functions so it stays identical across all

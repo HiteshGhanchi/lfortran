@@ -2713,9 +2713,8 @@ class ReplaceExprWithTemporaryVisitor:
         Vec<ASR::stmt_t*> body;
         body.reserve(al, 1);
         body.push_back(al, inner);
-        SymbolTable *loop_scope = al.make_new<SymbolTable>(this->current_scope);
         ASR::stmt_t *do_concurrent = ASRUtils::STMT(
-            ASR::make_DoConcurrentLoop_t(al, loc, loop_scope, heads.p, heads.n,
+            ASR::make_DoConcurrentLoop_t(al, loc, heads.p, heads.n,
                 nullptr, 0, nullptr, 0, nullptr, 0,
                 body.p, body.size()));
         ASR::DoConcurrentLoop_t& dc =

@@ -41,13 +41,8 @@ public:
         Vec<ASR::stmt_t*> body;
         body.reserve(al, 1);
         body.push_back(al, inner);
-
-        // FORALL indices are already resolved in the enclosing scope.
-        // The generated DoConcurrentLoop still owns a child scope, which is empty in this case.
-        SymbolTable *loop_scope = al.make_new<SymbolTable>(this->current_scope);
-        
         ASR::stmt_t *stmt = ASRUtils::STMT(
-            ASR::make_DoConcurrentLoop_t(al, loc, loop_scope, heads.p, heads.n, nullptr, 0, nullptr, 0, nullptr, 0, body.p, body.size())
+            ASR::make_DoConcurrentLoop_t(al, loc, heads.p, heads.n, nullptr, 0, nullptr, 0, nullptr, 0, body.p, body.size())
         );
         Vec<ASR::stmt_t*> result;
         result.reserve(al, 1);

@@ -1017,8 +1017,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [gemm
-                                                    cast_to_t]
+                                                    [cast_to_t
+                                                    gemm]
                                                     [(Var 10 a)
                                                     (Var 10 b)]
                                                     [(Assignment
@@ -2169,8 +2169,8 @@
                                         []
                                         .false.
                                     )
-                                    [my_gemm_real
-                                    my_cast_to_real]
+                                    [my_cast_to_real
+                                    my_gemm_real]
                                     [(Var 15 a)
                                     (Var 15 b)]
                                     [(Assignment
@@ -4000,8 +4000,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [gemm
-                                                    cast_to_t]
+                                                    [cast_to_t
+                                                    gemm]
                                                     [(Var 19 a)
                                                     (Var 19 b)]
                                                     [(Assignment
@@ -4449,8 +4449,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [my_gemm_real
-                                                    my_cast_to_real]
+                                                    [my_cast_to_real
+                                                    my_gemm_real]
                                                     [(Var 24 a)
                                                     (Var 24 b)]
                                                     [(Assignment
@@ -4840,8 +4840,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [my_gemm_double
-                                                    my_cast_to_double]
+                                                    [my_cast_to_double
+                                                    my_gemm_double]
                                                     [(Var 25 a)
                                                     (Var 25 b)]
                                                     [(Assignment
@@ -5450,8 +5450,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [my_gemm_double
-                                                    my_cast_to_double]
+                                                    [my_cast_to_double
+                                                    my_gemm_double]
                                                     [(Var 22 a)
                                                     (Var 22 b)]
                                                     [(Assignment
@@ -5841,8 +5841,8 @@
                                                         []
                                                         .false.
                                                     )
-                                                    [my_gemm_real
-                                                    my_cast_to_real]
+                                                    [my_cast_to_real
+                                                    my_gemm_real]
                                                     [(Var 21 a)
                                                     (Var 21 b)]
                                                     [(Assignment
